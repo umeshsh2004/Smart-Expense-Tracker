@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Profile · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+        <h1 style="display: flex; align-items: center;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 12px; color: #3b82f6;">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+            Profile
+        </h1>
+        <p>Manage your account settings</p>
+    </div>
+    <a href="{{ url_for('logout') }}" class="btn btn-outline" style="border-color: #ef4444; color: #ef4444;">Logout</a>
+</div>
+
+<div class="card form-card">
+    <h3 style="margin-bottom: 1rem;">Account Info</h3>
+    <form method="POST" action="{{ url_for('profile') }}" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="update_profile">
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" value="{{ user['username'] }}" class="form-input" disabled>
+            </div>
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" value="{{ user['email'] }}" required class="form-input">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Member since</label>
+            <input type="text" value="{{ user['created_at'] }}" class="form-input" disabled>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Save Profile</button>
+    </form>
+</div>
+
+<div class="card form-card">
+    <h3 style="margin-bottom: 1rem;">Change Password</h3>
+    <form method="POST" action="{{ url_for('profile') }}" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="change_password">
+
+        <div class="form-group">
+            <label for="current_password">Current Password</label>
+            <input type="password" id="current_password" name="current_password" required class="form-input">
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="new_password">New Password</label>
+                <input type="password" id="new_password" name="new_password" required minlength="6" class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="confirm_password">Confirm New Password</label>
+                <input type="password" id="confirm_password" name="confirm_password" required minlength="6" class="form-input">
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-outline">Change Password</button>
+    </form>
+</div>
+
+{% endblock %}

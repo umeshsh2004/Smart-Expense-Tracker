@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}Add Expense · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>Add New Expense</h1>
+    <p>Manual entry, voice input, or receipt scan</p>
+</div>
+
+<div class="card glass form-card">
+    <form method="POST" action="{{ url_for('index') }}" class="expense-form" id="expenseForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="add_expense">
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="amount">Amount</label>
+                <input type="number" id="amount" name="amount" placeholder="0.00" step="0.01" min="0.01" required class="form-input"
+                    value="{{ ocr_prefill.get('amount') or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="date">Date</label>
+                <input type="date" id="date" name="date" value="{{ ocr_prefill.get('date') or today }}" required class="form-input">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id" required class="form-input">
+                    <option value="">Select category...</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat['id'] }}">{{ cat['icon'] }} {{ cat['name'] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <input type="text" id="description" name="description" placeholder="What did you spend on?" required class="form-input"
+                    value="{{ ocr_prefill.get('description') or '' }}">
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">➕ Add Expense</button>
+            <button type="button" class="btn btn-outline" id="voiceBtn">🎤 Voice Input</button>
+        </div>
+        <p class="muted" id="voiceStatus"></p>
+    </form>
+</div>
+
+<div class="card glass form-card">
+    <h3 style="margin-bottom: 12px;">📷 Receipt Scan</h3>
+    <form method="POST" action="{{ url_for('index') }}" enctype="multipart/form-data" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="scan_receipt">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="receipt">Upload image (PNG/JPG)</label>
+                <input type="file" id="receipt" name="receipt" accept="image/*" class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="receipt_text">Or paste receipt text</label>
+                <textarea id="receipt_text" name="receipt_text" rows="3" class="form-input" placeholder="Paste bill text here..."></textarea>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-outline">Scan Receipt</button>
+    </form>
+    {% if ocr_prefill.get('message') %}
+        <p class="muted" style="margin-top:10px;">{{ ocr_prefill['message'] }}</p>
+    {% endif %}
+</div>
+
+<div class="section-header">
+    <h2>Recent Expenses</h2>
+    <a href="{{ url_for('expenses') }}" class="link">View All →</a>
+</div>
+
+{% if recent_expenses %}
+<div class="expenses-list">
+    {% for expense in recent_expenses %}
+    <div class="expense-item glass">
+        <div class="expense-icon">{{ expense['category_icon'] }}</div>
+        <div class="expense-details">
+            <span class="expense-desc">{{ expense['description'] }}</span>
+            <span class="expense-meta">{{ expense['category_name'] }} · {{ expense['date'] }}</span>
+        </div>
+        <div class="expense-amount">₹{{ "%.2f"|format(expense['amount']) }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state glass">
+    <p>No expenses yet. Add your first one above!</p>
+</div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+{% endblock %}

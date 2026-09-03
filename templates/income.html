@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Income · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>💵 Income</h1>
+    <p>Track salary, freelance, and other income sources</p>
+</div>
+
+<div class="stats-grid stats-grid-3">
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon">📥</div>
+        <div class="stat-value">₹{{ "%.2f"|format(month_income) }}</div>
+        <div class="stat-label">Income This Month</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon">📤</div>
+        <div class="stat-value">₹{{ "%.2f"|format(month_expense) }}</div>
+        <div class="stat-label">Expenses This Month</div>
+    </div>
+    <div class="stat-card stat-gradient {% if month_savings < 0 %}stat-warning{% endif %}">
+        <div class="stat-icon">🏦</div>
+        <div class="stat-value">₹{{ "%.2f"|format(month_savings) }}</div>
+        <div class="stat-label">Monthly Savings</div>
+    </div>
+</div>
+
+<div class="card form-card">
+    <form method="POST" action="{{ url_for('income') }}" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="amount">Amount</label>
+                <input type="number" id="amount" name="amount" step="0.01" min="0.01" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="date">Date</label>
+                <input type="date" id="date" name="date" value="{{ today }}" required class="form-input">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="source">Source</label>
+                <input type="text" id="source" name="source" placeholder="Salary, Freelance, Bonus..." required class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="description">Description (optional)</label>
+                <input type="text" id="description" name="description" placeholder="Notes" class="form-input">
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Add Income</button>
+    </form>
+</div>
+
+{% if entries %}
+<div class="card">
+    <h3 style="margin-bottom: 12px;">Recent Income</h3>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Source</th>
+                    <th>Description</th>
+                    <th class="right">Amount</th>
+                    <th class="right">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in entries %}
+                <tr>
+                    <td>{{ row['date'] }}</td>
+                    <td>{{ row['source'] }}</td>
+                    <td>{{ row['description'] or '—' }}</td>
+                    <td class="right income-amount">₹{{ "%.2f"|format(row['amount']) }}</td>
+                    <td class="right">
+                        <form method="POST" action="{{ url_for('delete_income', income_id=row['id']) }}" class="inline-form" onsubmit="return confirm('Delete this income entry?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="empty-state card">
+    <p>No income recorded yet.</p>
+</div>
+{% endif %}
+
+{% endblock %}

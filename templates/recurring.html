@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Recurring · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🔁 Recurring Expenses</h1>
+    <p>Netflix, rent, gym — posted automatically each month</p>
+</div>
+
+<div class="card glass form-card">
+    <form method="POST" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="amount">Amount</label>
+                <input type="number" id="amount" name="amount" step="0.01" min="0.01" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="next_due_date">Next due date</label>
+                <input type="date" id="next_due_date" name="next_due_date" value="{{ today }}" required class="form-input">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id" required class="form-input">
+                    {% for cat in categories %}
+                        <option value="{{ cat['id'] }}">{{ cat['icon'] }} {{ cat['name'] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="description">Description</label>
+                <input type="text" id="description" name="description" placeholder="Netflix subscription" required class="form-input">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Recurring</button>
+    </form>
+</div>
+
+{% if items %}
+<div class="card glass">
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Category</th>
+                    <th>Amount</th>
+                    <th>Next due</th>
+                    <th>Status</th>
+                    <th class="right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ item['description'] }}</td>
+                    <td>{{ item['category_icon'] }} {{ item['category_name'] }}</td>
+                    <td>₹{{ "%.2f"|format(item['amount']) }}</td>
+                    <td>{{ item['next_due_date'] }}</td>
+                    <td>{{ 'Active' if item['active'] else 'Paused' }}</td>
+                    <td class="right actions-cell">
+                        <form method="POST" action="{{ url_for('toggle_recurring', rid=item['id']) }}" class="inline-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="active" value="{{ 0 if item['active'] else 1 }}">
+                            <button type="submit" class="btn btn-outline btn-sm">{{ 'Pause' if item['active'] else 'Resume' }}</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('delete_recurring_route', rid=item['id']) }}" class="inline-form" onsubmit="return confirm('Delete?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="empty-state glass"><p>No recurring expenses yet.</p></div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}AI Chat · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>💬 Finance Assistant</h1>
+    <p>Ask about spending, budgets, and predictions</p>
+</div>
+
+<div class="card glass chat-box">
+    <form method="POST" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-group">
+            <label for="question">Your question</label>
+            <textarea id="question" name="question" rows="3" class="form-input" placeholder="Why did I spend more this month?" required>{{ question }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Ask</button>
+    </form>
+
+    {% if answer %}
+    <div class="chat-answer">
+        <strong>Assistant</strong>
+        <p>{{ answer }}</p>
+    </div>
+    {% endif %}
+
+    <div class="prediction-info muted-box" style="margin-top:1rem;">
+        <p><strong>Example questions</strong></p>
+        <p>Why did I spend more this month? · What is my top category? · Predict next month · Any budget exceeded? · How are my savings?</p>
+    </div>
+</div>
+
+{% endblock %}

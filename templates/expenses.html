@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>All Expenses</h1>
+    <p>{{ total_count }} expense(s) on this page · Page total: <strong>₹{{ "%.2f"|format(total) }}</strong></p>
+</div>
+
+<div class="card form-card">
+    <form method="GET" action="{{ url_for('expenses') }}" class="expense-form search-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="q">Search description</label>
+                <input type="text" id="q" name="q" value="{{ search }}" placeholder="e.g. groceries" class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id" class="form-input">
+                    <option value="">All categories</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat['id'] }}" {% if category_id == cat['id'] %}selected{% endif %}>
+                            {{ cat['icon'] }} {{ cat['name'] }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="date_from">From date</label>
+                <input type="date" id="date_from" name="date_from" value="{{ date_from }}" class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="date_to">To date</label>
+                <input type="date" id="date_to" name="date_to" value="{{ date_to }}" class="form-input">
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Search</button>
+            <a href="{{ url_for('expenses') }}" class="btn btn-outline">Clear</a>
+            <a href="{{ url_for('export_expenses', q=search, category_id=category_id or '', date_from=date_from, date_to=date_to) }}" class="btn btn-outline">Export CSV</a>
+            <a href="{{ url_for('export_expenses_excel', q=search, category_id=category_id or '', date_from=date_from, date_to=date_to) }}" class="btn btn-outline">Export Excel</a>
+            <a href="{{ url_for('export_expenses_pdf', q=search, category_id=category_id or '', date_from=date_from, date_to=date_to) }}" class="btn btn-outline">Export PDF</a>
+        </div>
+    </form>
+</div>
+
+{% if expenses %}
+<div class="card">
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th class="right">Amount</th>
+                    <th class="right">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in expenses %}
+                <tr>
+                    <td>{{ e['date'] }}</td>
+                    <td><span class="pill" style="background: {{ e['category_color'] }}22; border-color: {{ e['category_color'] }}55;">{{ e['category_icon'] }} {{ e['category_name'] }}</span></td>
+                    <td>{{ e['description'] }}</td>
+                    <td class="right">₹{{ "%.2f"|format(e['amount']) }}</td>
+                    <td class="right actions-cell">
+                        <a href="{{ url_for('edit_expense', expense_id=e['id']) }}" class="btn btn-outline btn-sm">Edit</a>
+                        <form method="POST" action="{{ url_for('delete_expense', expense_id=e['id']) }}" class="inline-form" onsubmit="return confirm('Delete this expense?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+        <a class="btn btn-outline" href="{{ url_for('expenses', page=page-1, q=search, category_id=category_id or '', date_from=date_from, date_to=date_to) }}">← Previous</a>
+    {% endif %}
+    <span class="muted">Page {{ page }} of {{ total_pages }}</span>
+    {% if page < total_pages %}
+        <a class="btn btn-outline" href="{{ url_for('expenses', page=page+1, q=search, category_id=category_id or '', date_from=date_from, date_to=date_to) }}">Next →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty-state">
+    <p>No expenses found.</p>
+</div>
+{% endif %}
+
+{% endblock %}

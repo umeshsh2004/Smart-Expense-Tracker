@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1 style="display: flex; align-items: center;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 12px; color: #3b82f6;">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+        </svg>
+        Dashboard — {{ month_name }}
+    </h1>
+    <p>Charts + prediction (simple linear regression)</p>
+</div>
+
+<div class="month-nav">
+    <a class="btn btn-outline" href="{{ url_for('dashboard', year=prev_year, month=prev_month) }}">← Previous</a>
+    <span class="month-label">{{ month_name }}</span>
+    <a class="btn btn-outline" href="{{ url_for('dashboard', year=next_year, month=next_month) }}">Next →</a>
+</div>
+
+<div class="stats-grid stats-grid-6">
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10b981;"><line x1="12" x2="12" y1="2" y2="22"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></div>
+        <div class="stat-value">₹{{ "%.2f"|format(monthly_total) }}</div>
+        <div class="stat-label">This Month</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #3b82f6;"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect><line x1="16" x2="16" y1="2" y2="6"></line><line x1="8" x2="8" y1="2" y2="6"></line><line x1="3" x2="21" y1="10" y2="10"></line></svg></div>
+        <div class="stat-value">₹{{ "%.2f"|format(stats['average']) }}</div>
+        <div class="stat-label">Monthly Average</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444;"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg></div>
+        <div class="stat-value">₹{{ "%.2f"|format(stats['maximum']) }}</div>
+        <div class="stat-label">Highest Month</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></div>
+        <div class="stat-value">{{ total_expenses }}</div>
+        <div class="stat-label">Total Expenses</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #eab308;"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path><path d="M4 22h16"></path><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path></svg></div>
+        <div class="stat-value">
+            {% if highest_category %}
+                {{ highest_category['category'] }}
+            {% else %}
+                N/A
+            {% endif %}
+        </div>
+        <div class="stat-label">Top Category</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #14b8a6;"><circle cx="12" cy="12" r="10"></circle><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path><path d="M12 18V6"></path></svg></div>
+        <div class="stat-value">₹{{ "%.2f"|format(budget_remaining) }}</div>
+        <div class="stat-label">Budget Remaining</div>
+    </div>
+    <div class="stat-card stat-gradient {% if monthly_savings < 0 %}stat-warning{% endif %}">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #3b82f6;"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M12 6h.01"></path><path d="M12 10h.01"></path><path d="M12 14h.01"></path><path d="M16 10h.01"></path><path d="M16 14h.01"></path><path d="M8 10h.01"></path><path d="M8 14h.01"></path></svg></div>
+        <div class="stat-value">₹{{ "%.2f"|format(monthly_savings) }}</div>
+        <div class="stat-label">Monthly Savings</div>
+    </div>
+    <div class="stat-card stat-gradient {% if prediction['prediction'] and prediction['prediction'] > stats['average'] %}stat-warning{% endif %}">
+        <div class="stat-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></div>
+        <div class="stat-value">
+            {% if prediction['prediction'] %}
+                ₹{{ "%.2f"|format(prediction['prediction']) }}
+            {% else %}
+                N/A
+            {% endif %}
+        </div>
+        <div class="stat-label">Predicted Next Month</div>
+    </div>
+</div>
+
+<div class="charts-grid charts-grid-3">
+    <div class="card chart-card">
+        <h3>Daily Spending — {{ month_name }}</h3>
+        <canvas id="dailyChart" height="200"></canvas>
+    </div>
+
+    <div class="card chart-card">
+        <h3>Weekly Spending</h3>
+        <canvas id="weeklyChart" height="200"></canvas>
+    </div>
+
+    <div class="card chart-card">
+        <h3>Spending by Category</h3>
+        {% if pie_labels %}
+            <canvas id="categoryChart" height="200"></canvas>
+        {% else %}
+            <div style="height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-style: italic;">
+                No expenses this month
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card chart-card full-width">
+    <h3>Monthly Trend + Prediction</h3>
+    <canvas id="trendChart" height="120"></canvas>
+
+    {% if prediction['message'] == 'Prediction successful' %}
+    <div class="prediction-info" style="border-left: 4px solid {{ prediction['trend_color'] }}">
+        <p><strong>{{ prediction['trend'] }}</strong></p>
+        <p>
+            Based on {{ prediction['data_points'] }} months of data.
+            R² score: {{ prediction['r_squared'] }}
+            ({{ "Good fit" if prediction['r_squared'] > 0.7 else "Moderate fit" if prediction['r_squared'] > 0.4 else "Weak fit — more data needed" }})
+        </p>
+        <p>Predicted spend next month: <strong>₹{{ "%.2f"|format(prediction['prediction']) }}</strong></p>
+        <p class="muted">Note: months with no expenses are skipped in the model, so predictions are approximate.</p>
+    </div>
+    {% else %}
+    <div class="prediction-info">
+        <p>{{ prediction['message'] }}</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+const dailyLabels  = {{ bar_labels | tojson }};
+const dailyValues  = {{ bar_values | tojson }};
+const weekLabels   = {{ week_labels | tojson }};
+const weekValues   = {{ week_values | tojson }};
+const pieLabels    = {{ pie_labels | tojson }};
+const pieValues    = {{ pie_values | tojson }};
+const pieColors    = {{ pie_colors | tojson }};
+
+new Chart(document.getElementById('dailyChart'), {
+  type: 'bar',
+  data: {
+    labels: dailyLabels,
+    datasets: [{
+      label: 'Daily Spending (₹)',
+      data: dailyValues,
+      backgroundColor: 'rgba(52, 152, 219, 0.7)',
+      borderColor: 'rgba(52, 152, 219, 1)',
+      borderWidth: 1,
+      borderRadius: 4
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { beginAtZero: true, ticks: { callback: (val) => '₹' + val } }
+    }
+  }
+});
+
+new Chart(document.getElementById('weeklyChart'), {
+  type: 'bar',
+  data: {
+    labels: weekLabels,
+    datasets: [{
+      label: 'Weekly Spending (₹)',
+      data: weekValues,
+      backgroundColor: 'rgba(46, 204, 113, 0.7)',
+      borderColor: 'rgba(46, 204, 113, 1)',
+      borderWidth: 1,
+      borderRadius: 4
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { callback: (val) => '₹' + val } } }
+  }
+});
+
+{% if pie_labels %}
+new Chart(document.getElementById('categoryChart'), {
+  type: 'doughnut',
+  data: {
+    labels: pieLabels,
+    datasets: [{ data: pieValues, backgroundColor: pieColors, borderWidth: 2, borderColor: 'transparent' }]
+  },
+  options: {
+    responsive: true,
+    plugins: {
+      legend: { position: 'bottom', labels: { padding: 15, font: { size: 12 } } },
+      tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ₹${ctx.parsed.toFixed(2)}` } }
+    }
+  }
+});
+{% endif %}
+
+fetch('/api/monthly-data')
+  .then(r => r.json())
+  .then(data => {
+    const labels = [...(data.labels || []), 'Next Month (Predicted)'];
+    new Chart(document.getElementById('trendChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Actual Spending',
+            data: [...(data.amounts || []), null],
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52,152,219,0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true,
+            pointRadius: 5
+          },
+          {
+            label: 'Regression Line',
+            data: data.regression || [],
+            borderColor: '#e74c3c',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 3,
+            fill: false,
+            tension: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ₹${(ctx.parsed.y ?? 0).toFixed(2)}` } }
+        },
+        scales: { y: { beginAtZero: true, ticks: { callback: (val) => '₹' + val } } }
+      }
+    });
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🔔 Notifications</h1>
+    <p>Budget alerts, predictions, and spending signals</p>
+</div>
+
+<form method="POST" action="{{ url_for('read_all_notifications') }}" style="margin-bottom:1rem;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline">Mark all read</button>
+</form>
+
+{% if items %}
+<div class="notifications-list">
+    {% for n in items %}
+    <div class="card glass notification-item {% if not n['is_read'] %}unread{% endif %}">
+        <div class="notification-head">
+            <strong>{{ n['title'] }}</strong>
+            <span class="pill">{{ n['kind'] }}</span>
+        </div>
+        <p>{{ n['message'] }}</p>
+        <div class="notification-foot">
+            <span class="muted">{{ n['created_at'] }}</span>
+            {% if not n['is_read'] %}
+            <form method="POST" action="{{ url_for('read_notification', nid=n['id']) }}" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline btn-sm">Mark read</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state glass"><p>No notifications yet.</p></div>
+{% endif %}
+
+{% endblock %}

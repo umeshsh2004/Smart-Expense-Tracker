@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Predictions · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🔮 Spending Predictions</h1>
+    <p>Linear regression forecast based on your monthly totals</p>
+</div>
+
+<div class="stats-grid stats-grid-3">
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon">📅</div>
+        <div class="stat-value">₹{{ "%.2f"|format(stats['average']) }}</div>
+        <div class="stat-label">Monthly Average</div>
+    </div>
+    <div class="stat-card stat-gradient">
+        <div class="stat-icon">📈</div>
+        <div class="stat-value">₹{{ "%.2f"|format(stats['maximum']) }}</div>
+        <div class="stat-label">Highest Month</div>
+    </div>
+    <div class="stat-card stat-gradient {% if prediction['prediction'] and prediction['prediction'] > stats['average'] %}stat-warning{% endif %}">
+        <div class="stat-icon">🔮</div>
+        <div class="stat-value">
+            {% if prediction['prediction'] %}
+                ₹{{ "%.2f"|format(prediction['prediction']) }}
+            {% else %}
+                N/A
+            {% endif %}
+        </div>
+        <div class="stat-label">Predicted Next Month</div>
+    </div>
+</div>
+
+<div class="card chart-card full-width">
+    <h3>Monthly Trend + Regression Line</h3>
+    <canvas id="trendChart" height="140"></canvas>
+
+    {% if prediction['message'] == 'Prediction successful' %}
+    <div class="prediction-info" style="border-left: 4px solid {{ prediction['trend_color'] }}">
+        <p><strong>{{ prediction['trend'] }}</strong></p>
+        <p>Based on {{ prediction['data_points'] }} months · R² = {{ prediction['r_squared'] }} · Slope = ₹{{ prediction['slope'] }}/month</p>
+        <p>Predicted next month: <strong>₹{{ "%.2f"|format(prediction['prediction']) }}</strong></p>
+    </div>
+    {% else %}
+    <div class="prediction-info">
+        <p>{{ prediction['message'] }}</p>
+    </div>
+    {% endif %}
+
+    <div class="prediction-info muted-box">
+        <p><strong>Model limitations</strong></p>
+        <p>Uses sequential month indices (1, 2, 3…) not calendar dates. Months with zero spending are skipped. Does not account for category mix, weekends, income, or seasonality.</p>
+    </div>
+</div>
+
+<script>
+fetch('/api/monthly-data')
+  .then(r => r.json())
+  .then(data => {
+    const labels = [...(data.labels || []), 'Next Month (Predicted)'];
+    new Chart(document.getElementById('trendChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Actual Spending',
+            data: [...(data.amounts || []), null],
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52,152,219,0.1)',
+            borderWidth: 2,
+            tension: 0.3,
+            fill: true
+          },
+          {
+            label: 'Regression Line',
+            data: data.regression || [],
+            borderColor: '#e74c3c',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true, ticks: { callback: v => '₹' + v } } }
+      }
+    });
+  });
+</script>
+
+{% endblock %}

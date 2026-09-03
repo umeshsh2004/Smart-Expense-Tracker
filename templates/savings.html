@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Savings Goals · Smart Expense Tracker{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>🏦 Savings Goals</h1>
+    <p>Track progress toward financial targets</p>
+</div>
+
+<div class="card glass form-card">
+    <form method="POST" class="expense-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="name">Goal name</label>
+                <input type="text" id="name" name="name" placeholder="Emergency fund" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label for="target_amount">Target (₹)</label>
+                <input type="number" id="target_amount" name="target_amount" step="0.01" min="1" required class="form-input">
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="deadline">Deadline (optional)</label>
+                <input type="date" id="deadline" name="deadline" class="form-input">
+            </div>
+            <div class="form-group">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn-primary">Create Goal</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+{% if goals %}
+<div class="goals-grid">
+    {% for g in goals %}
+        {% set pct = (g['current_amount'] / g['target_amount'] * 100) if g['target_amount'] > 0 else 0 %}
+        {% set pct_clamp = 100 if pct > 100 else pct %}
+        <div class="card glass goal-card">
+            <h3>{{ g['name'] }}</h3>
+            <p class="goal-amounts">₹{{ "%.2f"|format(g['current_amount']) }} / ₹{{ "%.2f"|format(g['target_amount']) }}</p>
+            <div class="budget-bar-bg"><div class="budget-bar-fill" style="width:{{ pct_clamp }}%; background:#2ecc71;"></div></div>
+            <p class="muted">{{ "%.1f"|format(pct) }}% complete{% if g['deadline'] %} · due {{ g['deadline'] }}{% endif %}</p>
+            <form method="POST" class="expense-form" style="margin-top:12px;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="contribute">
+                <input type="hidden" name="goal_id" value="{{ g['id'] }}">
+                <div class="form-row">
+                    <input type="number" name="amount" step="0.01" min="0.01" placeholder="Add ₹" required class="form-input">
+                    <button type="submit" class="btn btn-outline">Add</button>
+                </div>
+            </form>
+            <form method="POST" action="{{ url_for('delete_savings_goal', goal_id=g['id']) }}" style="margin-top:8px;" onsubmit="return confirm('Delete goal?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+            </form>
+        </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state glass"><p>No savings goals yet.</p></div>
+{% endif %}
+
+{% endblock %}
