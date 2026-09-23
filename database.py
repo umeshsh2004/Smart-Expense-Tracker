@@ -695,19 +695,34 @@ def get_expenses_for_export(
 def get_monthly_totals(user_id: int, limit: int = 12):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            strftime('%Y-%m', date) AS month,
-            SUM(amount)             AS total
-        FROM expenses
-        WHERE user_id = ?
-        GROUP BY strftime('%Y-%m', date)
-        ORDER BY month ASC
-        LIMIT ?
-        """,
-        (int(user_id), int(limit)),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT
+                to_char(date::date, 'YYYY-MM') AS month,
+                SUM(amount)                   AS total
+            FROM expenses
+            WHERE user_id = %s
+            GROUP BY to_char(date::date, 'YYYY-MM')
+            ORDER BY month ASC
+            LIMIT %s
+            """,
+            (int(user_id), int(limit)),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                strftime('%Y-%m', date) AS month,
+                SUM(amount)             AS total
+            FROM expenses
+            WHERE user_id = ?
+            GROUP BY strftime('%Y-%m', date)
+            ORDER BY month ASC
+            LIMIT ?
+            """,
+            (int(user_id), int(limit)),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -717,20 +732,36 @@ def get_spending_by_category(user_id: int, year: int, month: int):
     conn = get_connection()
     cur = conn.cursor()
     month_str = f"{int(year)}-{int(month):02d}"
-    cur.execute(
-        """
-        SELECT
-            c.name  AS category,
-            c.color AS color,
-            SUM(e.amount) AS total
-        FROM expenses e
-        JOIN categories c ON e.category_id = c.id
-        WHERE e.user_id = ? AND e.date LIKE ?
-        GROUP BY c.id
-        ORDER BY total DESC
-        """,
-        (int(user_id), f"{month_str}%"),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT
+                c.name  AS category,
+                c.color AS color,
+                SUM(e.amount) AS total
+            FROM expenses e
+            JOIN categories c ON e.category_id = c.id
+            WHERE e.user_id = %s AND e.date::text LIKE %s
+            GROUP BY c.id, c.name, c.color
+            ORDER BY total DESC
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                c.name  AS category,
+                c.color AS color,
+                SUM(e.amount) AS total
+            FROM expenses e
+            JOIN categories c ON e.category_id = c.id
+            WHERE e.user_id = ? AND e.date LIKE ?
+            GROUP BY c.id
+            ORDER BY total DESC
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -740,18 +771,32 @@ def get_daily_spending(user_id: int, year: int, month: int):
     conn = get_connection()
     cur = conn.cursor()
     month_str = f"{int(year)}-{int(month):02d}"
-    cur.execute(
-        """
-        SELECT
-            date,
-            SUM(amount) AS total
-        FROM expenses
-        WHERE user_id = ? AND date LIKE ?
-        GROUP BY date
-        ORDER BY date
-        """,
-        (int(user_id), f"{month_str}%"),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT
+                date,
+                SUM(amount) AS total
+            FROM expenses
+            WHERE user_id = %s AND date::text LIKE %s
+            GROUP BY date
+            ORDER BY date
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                date,
+                SUM(amount) AS total
+            FROM expenses
+            WHERE user_id = ? AND date LIKE ?
+            GROUP BY date
+            ORDER BY date
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -784,18 +829,32 @@ def get_weekly_spending(user_id: int, year: int, month: int):
     conn = get_connection()
     cur = conn.cursor()
     month_str = f"{int(year)}-{int(month):02d}"
-    cur.execute(
-        """
-        SELECT
-            CAST((CAST(strftime('%d', date) AS INTEGER) - 1) / 7 + 1 AS INTEGER) AS week_num,
-            SUM(amount) AS total
-        FROM expenses
-        WHERE user_id = ? AND date LIKE ?
-        GROUP BY week_num
-        ORDER BY week_num
-        """,
-        (int(user_id), f"{month_str}%"),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT
+                CAST(((EXTRACT(DAY FROM date::date) - 1) / 7 + 1) AS INTEGER) AS week_num,
+                SUM(amount) AS total
+            FROM expenses
+            WHERE user_id = %s AND date LIKE %s
+            GROUP BY week_num
+            ORDER BY week_num
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                CAST((CAST(strftime('%d', date) AS INTEGER) - 1) / 7 + 1 AS INTEGER) AS week_num,
+                SUM(amount) AS total
+            FROM expenses
+            WHERE user_id = ? AND date LIKE ?
+            GROUP BY week_num
+            ORDER BY week_num
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -853,29 +912,54 @@ def get_budget_vs_actual(user_id: int, year: int, month: int):
     conn = get_connection()
     cur = conn.cursor()
     month_str = f"{int(year)}-{int(month):02d}"
-    cur.execute(
-        """
-        SELECT
-            c.id                                AS category_id,
-            c.name                              AS category,
-            c.color                             AS color,
-            c.icon                              AS icon,
-            COALESCE(b.amount, 0)               AS budget,
-            COALESCE(SUM(e.amount), 0)          AS actual,
-            CASE
-                WHEN COALESCE(b.amount, 0) = 0 THEN 0
-                ELSE ROUND(COALESCE(SUM(e.amount), 0) / b.amount * 100, 1)
-            END                                 AS percentage
-        FROM categories c
-        LEFT JOIN budgets b
-            ON c.id = b.category_id AND b.month = ? AND b.user_id = ?
-        LEFT JOIN expenses e
-            ON c.id = e.category_id AND e.date LIKE ? AND e.user_id = ?
-        GROUP BY c.id
-        ORDER BY actual DESC
-        """,
-        (month_str, int(user_id), f"{month_str}%", int(user_id)),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT
+                c.id                                AS category_id,
+                c.name                              AS category,
+                c.color                             AS color,
+                c.icon                              AS icon,
+                COALESCE(b.amount, 0)               AS budget,
+                COALESCE(SUM(e.amount), 0)          AS actual,
+                CASE
+                    WHEN COALESCE(b.amount, 0) = 0 THEN 0
+                    ELSE ROUND(COALESCE(SUM(e.amount), 0) / b.amount * 100, 1)
+                END                                 AS percentage
+            FROM categories c
+            LEFT JOIN budgets b
+                ON c.id = b.category_id AND b.month = %s AND b.user_id = %s
+            LEFT JOIN expenses e
+                ON c.id = e.category_id AND e.date::text LIKE %s AND e.user_id = %s
+            GROUP BY c.id, c.name, c.color, c.icon, b.amount
+            ORDER BY actual DESC
+            """,
+            (month_str, int(user_id), f"{month_str}%", int(user_id)),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT
+                c.id                                AS category_id,
+                c.name                              AS category,
+                c.color                             AS color,
+                c.icon                              AS icon,
+                COALESCE(b.amount, 0)               AS budget,
+                COALESCE(SUM(e.amount), 0)          AS actual,
+                CASE
+                    WHEN COALESCE(b.amount, 0) = 0 THEN 0
+                    ELSE ROUND(COALESCE(SUM(e.amount), 0) / b.amount * 100, 1)
+                END                                 AS percentage
+            FROM categories c
+            LEFT JOIN budgets b
+                ON c.id = b.category_id AND b.month = ? AND b.user_id = ?
+            LEFT JOIN expenses e
+                ON c.id = e.category_id AND e.date LIKE ? AND e.user_id = ?
+            GROUP BY c.id
+            ORDER BY actual DESC
+            """,
+            (month_str, int(user_id), f"{month_str}%", int(user_id)),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -903,13 +987,22 @@ def create_password_reset_token(user_id: int, token: str, expires_at: str) -> No
 def get_valid_reset_token(token: str):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT * FROM password_reset_tokens
-        WHERE token = ? AND used = 0 AND expires_at > datetime('now')
-        """,
-        (token,),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT * FROM password_reset_tokens
+            WHERE token = %s AND used = 0 AND expires_at > CURRENT_TIMESTAMP
+            """,
+            (token,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT * FROM password_reset_tokens
+            WHERE token = ? AND used = 0 AND expires_at > datetime('now')
+            """,
+            (token,),
+        )
     row = cur.fetchone()
     conn.close()
     return row
@@ -968,14 +1061,24 @@ def get_monthly_income_total(user_id: int, year: int, month: int) -> float:
     conn = get_connection()
     cur = conn.cursor()
     month_str = f"{int(year)}-{int(month):02d}"
-    cur.execute(
-        """
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM income
-        WHERE user_id = ? AND date LIKE ?
-        """,
-        (int(user_id), f"{month_str}%"),
-    )
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS total
+            FROM income
+            WHERE user_id = %s AND date::text LIKE %s
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(amount), 0) AS total
+            FROM income
+            WHERE user_id = ? AND date LIKE ?
+            """,
+            (int(user_id), f"{month_str}%"),
+        )
     total = float(cur.fetchone()["total"])
     conn.close()
     return round(total, 2)
