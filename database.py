@@ -1,10 +1,61 @@
+import os
 import sqlite3
 from pathlib import Path
 
-DATABASE_PATH = Path(__file__).with_name("expense_tracker.db")
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+base_dir = Path(__file__).resolve().parent
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("DATABASE_URI") or ""
+
+if os.environ.get("VERCEL") == "1" and not DATABASE_URL:
+    DATABASE_PATH = Path("/tmp/expense_tracker.db")
+else:
+    DATABASE_PATH = base_dir / "expense_tracker.db"
+
+DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _is_postgres() -> bool:
+    return bool(DATABASE_URL) and DATABASE_URL.startswith(("postgres://", "postgresql://"))
+
+
+class _CompatCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+    def execute(self, query, params=(), *args, **kwargs):
+        if _is_postgres() and "?" in query:
+            query = query.replace("?", "%s")
+        return self._cursor.execute(query, params, *args, **kwargs)
+
+    def executemany(self, query, seq_of_params):
+        if _is_postgres() and "?" in query:
+            query = query.replace("?", "%s")
+        return self._cursor.executemany(query, seq_of_params)
+
+
+class _CompatConnection:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def cursor(self):
+        if _is_postgres():
+            return _CompatCursor(self._conn.cursor(cursor_factory=RealDictCursor))
+        return _CompatCursor(self._conn.cursor())
 
 
 def get_connection():
+    if _is_postgres():
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        return _CompatConnection(conn)
+
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -13,6 +64,17 @@ def get_connection():
 
 def _table_columns(conn, table: str) -> set[str]:
     cur = conn.cursor()
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table,),
+        )
+        return {row["column_name"] for row in cur.fetchall()}
+
     cur.execute(f"PRAGMA table_info({table})")
     return {row[1] for row in cur.fetchall()}
 
@@ -20,6 +82,46 @@ def _table_columns(conn, table: str) -> set[str]:
 def _migrate_schema(conn) -> None:
     """Add user-scoped columns to existing databases."""
     cur = conn.cursor()
+    if _is_postgres():
+        cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+            """
+        )
+        tables = {row["table_name"] for row in cur.fetchall()}
+
+        if "expenses" in tables and "user_id" not in _table_columns(conn, "expenses"):
+            cur.execute(
+                "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id)"
+            )
+
+        if "budgets" in tables and "user_id" not in _table_columns(conn, "budgets"):
+            cur.execute(
+                """
+                CREATE TABLE budgets_new (
+                    id          BIGSERIAL PRIMARY KEY,
+                    user_id     INTEGER NOT NULL,
+                    category_id INTEGER NOT NULL,
+                    month       TEXT NOT NULL,
+                    amount      REAL NOT NULL CHECK(amount > 0),
+                    UNIQUE(user_id, category_id, month),
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (category_id) REFERENCES categories(id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                INSERT INTO budgets_new (user_id, category_id, month, amount)
+                SELECT user_id, category_id, month, amount FROM budgets
+                """
+            )
+            cur.execute("DROP TABLE budgets")
+            cur.execute("ALTER TABLE budgets_new RENAME TO budgets")
+        return
+
     tables = {row[0] for row in cur.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()}
@@ -50,137 +152,228 @@ def init_db():
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute(
+    if _is_postgres():
+        user_sql = """
+            CREATE TABLE IF NOT EXISTS users (
+                id            BIGSERIAL PRIMARY KEY,
+                username      TEXT    NOT NULL UNIQUE,
+                email         TEXT    NOT NULL UNIQUE,
+                password_hash TEXT    NOT NULL,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
         """
-        CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            username      TEXT    NOT NULL UNIQUE,
-            email         TEXT    NOT NULL UNIQUE,
-            password_hash TEXT    NOT NULL,
-            created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
+        category_sql = """
+            CREATE TABLE IF NOT EXISTS categories (
+                id          BIGSERIAL PRIMARY KEY,
+                name        TEXT    NOT NULL UNIQUE,
+                color       TEXT    NOT NULL DEFAULT '#3498db',
+                icon        TEXT    NOT NULL DEFAULT '💰',
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
         """
-    )
+        expense_sql = """
+            CREATE TABLE IF NOT EXISTS expenses (
+                id            BIGSERIAL PRIMARY KEY,
+                user_id       BIGINT NOT NULL,
+                amount        REAL    NOT NULL CHECK(amount > 0),
+                description   TEXT    NOT NULL,
+                category_id   BIGINT NOT NULL,
+                date          TEXT    NOT NULL,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        budget_sql = """
+            CREATE TABLE IF NOT EXISTS budgets (
+                id          BIGSERIAL PRIMARY KEY,
+                user_id     BIGINT NOT NULL,
+                category_id BIGINT NOT NULL,
+                month       TEXT    NOT NULL,
+                amount      REAL    NOT NULL CHECK(amount > 0),
+                UNIQUE(user_id, category_id, month),
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        income_sql = """
+            CREATE TABLE IF NOT EXISTS income (
+                id          BIGSERIAL PRIMARY KEY,
+                user_id     BIGINT NOT NULL,
+                amount      REAL    NOT NULL CHECK(amount > 0),
+                source      TEXT    NOT NULL,
+                description TEXT    NOT NULL DEFAULT '',
+                date        TEXT    NOT NULL,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        token_sql = """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id         BIGSERIAL PRIMARY KEY,
+                user_id    BIGINT NOT NULL,
+                token      TEXT    NOT NULL UNIQUE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used       INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        recurring_sql = """
+            CREATE TABLE IF NOT EXISTS recurring_expenses (
+                id            BIGSERIAL PRIMARY KEY,
+                user_id       BIGINT NOT NULL,
+                amount        REAL    NOT NULL CHECK(amount > 0),
+                description   TEXT    NOT NULL,
+                category_id   BIGINT NOT NULL,
+                next_due_date TEXT    NOT NULL,
+                active        INTEGER NOT NULL DEFAULT 1,
+                created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        savings_sql = """
+            CREATE TABLE IF NOT EXISTS savings_goals (
+                id             BIGSERIAL PRIMARY KEY,
+                user_id        BIGINT NOT NULL,
+                name           TEXT    NOT NULL,
+                target_amount  REAL    NOT NULL CHECK(target_amount > 0),
+                current_amount REAL    NOT NULL DEFAULT 0,
+                deadline       TEXT,
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        notification_sql = """
+            CREATE TABLE IF NOT EXISTS notifications (
+                id         BIGSERIAL PRIMARY KEY,
+                user_id    BIGINT NOT NULL,
+                title      TEXT    NOT NULL,
+                message    TEXT    NOT NULL,
+                kind       TEXT    NOT NULL DEFAULT 'info',
+                dedupe_key TEXT,
+                is_read    INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                UNIQUE(user_id, dedupe_key)
+            )
+        """
+    else:
+        user_sql = """
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT    NOT NULL UNIQUE,
+                email         TEXT    NOT NULL UNIQUE,
+                password_hash TEXT    NOT NULL,
+                created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        category_sql = """
+            CREATE TABLE IF NOT EXISTS categories (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL UNIQUE,
+                color       TEXT    NOT NULL DEFAULT '#3498db',
+                icon        TEXT    NOT NULL DEFAULT '💰',
+                created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        expense_sql = """
+            CREATE TABLE IF NOT EXISTS expenses (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER NOT NULL,
+                amount        REAL    NOT NULL CHECK(amount > 0),
+                description   TEXT    NOT NULL,
+                category_id   INTEGER NOT NULL,
+                date          TEXT    NOT NULL,
+                created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        budget_sql = """
+            CREATE TABLE IF NOT EXISTS budgets (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                category_id INTEGER NOT NULL,
+                month       TEXT    NOT NULL,
+                amount      REAL    NOT NULL CHECK(amount > 0),
+                UNIQUE(user_id, category_id, month),
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        income_sql = """
+            CREATE TABLE IF NOT EXISTS income (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                amount      REAL    NOT NULL CHECK(amount > 0),
+                source      TEXT    NOT NULL,
+                description TEXT    NOT NULL DEFAULT '',
+                date        TEXT    NOT NULL,
+                created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        token_sql = """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                token      TEXT    NOT NULL UNIQUE,
+                expires_at TEXT    NOT NULL,
+                used       INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        recurring_sql = """
+            CREATE TABLE IF NOT EXISTS recurring_expenses (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id       INTEGER NOT NULL,
+                amount        REAL    NOT NULL CHECK(amount > 0),
+                description   TEXT    NOT NULL,
+                category_id   INTEGER NOT NULL,
+                next_due_date TEXT    NOT NULL,
+                active        INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (category_id) REFERENCES categories(id)
+            )
+        """
+        savings_sql = """
+            CREATE TABLE IF NOT EXISTS savings_goals (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id        INTEGER NOT NULL,
+                name           TEXT    NOT NULL,
+                target_amount  REAL    NOT NULL CHECK(target_amount > 0),
+                current_amount REAL    NOT NULL DEFAULT 0,
+                deadline       TEXT,
+                created_at     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """
+        notification_sql = """
+            CREATE TABLE IF NOT EXISTS notifications (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                title      TEXT    NOT NULL,
+                message    TEXT    NOT NULL,
+                kind       TEXT    NOT NULL DEFAULT 'info',
+                dedupe_key TEXT,
+                is_read    INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                UNIQUE(user_id, dedupe_key)
+            )
+        """
 
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS categories (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT    NOT NULL UNIQUE,
-            color       TEXT    NOT NULL DEFAULT '#3498db',
-            icon        TEXT    NOT NULL DEFAULT '💰',
-            created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS expenses (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       INTEGER NOT NULL,
-            amount        REAL    NOT NULL CHECK(amount > 0),
-            description   TEXT    NOT NULL,
-            category_id   INTEGER NOT NULL,
-            date          TEXT    NOT NULL,
-            created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (category_id) REFERENCES categories(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS budgets (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER NOT NULL,
-            category_id INTEGER NOT NULL,
-            month       TEXT    NOT NULL,
-            amount      REAL    NOT NULL CHECK(amount > 0),
-            UNIQUE(user_id, category_id, month),
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (category_id) REFERENCES categories(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS income (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id     INTEGER NOT NULL,
-            amount      REAL    NOT NULL CHECK(amount > 0),
-            source      TEXT    NOT NULL,
-            description TEXT    NOT NULL DEFAULT '',
-            date        TEXT    NOT NULL,
-            created_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id    INTEGER NOT NULL,
-            token      TEXT    NOT NULL UNIQUE,
-            expires_at TEXT    NOT NULL,
-            used       INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS recurring_expenses (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       INTEGER NOT NULL,
-            amount        REAL    NOT NULL CHECK(amount > 0),
-            description   TEXT    NOT NULL,
-            category_id   INTEGER NOT NULL,
-            next_due_date TEXT    NOT NULL,
-            active        INTEGER NOT NULL DEFAULT 1,
-            created_at    TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            FOREIGN KEY (category_id) REFERENCES categories(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS savings_goals (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id        INTEGER NOT NULL,
-            name           TEXT    NOT NULL,
-            target_amount  REAL    NOT NULL CHECK(target_amount > 0),
-            current_amount REAL    NOT NULL DEFAULT 0,
-            deadline       TEXT,
-            created_at     TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        )
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS notifications (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id    INTEGER NOT NULL,
-            title      TEXT    NOT NULL,
-            message    TEXT    NOT NULL,
-            kind       TEXT    NOT NULL DEFAULT 'info',
-            dedupe_key TEXT,
-            is_read    INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id),
-            UNIQUE(user_id, dedupe_key)
-        )
-        """
-    )
+    cur.execute(user_sql)
+    cur.execute(category_sql)
+    cur.execute(expense_sql)
+    cur.execute(budget_sql)
+    cur.execute(income_sql)
+    cur.execute(token_sql)
+    cur.execute(recurring_sql)
+    cur.execute(savings_sql)
+    cur.execute(notification_sql)
 
     _migrate_schema(conn)
 

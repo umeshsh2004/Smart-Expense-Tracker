@@ -1,0 +1,14 @@
+version: 2
+builds:
+  - src: api/index.py
+    use: '@vercel/python'
+    config:
+      runtime: python3.11
+      maxLambdaSize: 50mb
+routes:
+  - src: /(.*)
+    dest: api/index.py
+env:
+  FLASK_ENV: production
+  VERCEL: "1"
+  # Add DATABASE_URL, FLASK_SECRET_KEY, and any other secrets in the Vercel dashboard.
